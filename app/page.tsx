@@ -1,64 +1,286 @@
-import Image from "next/image";
+// app/page.tsx
+"use client";
 
-export default function Home() {
+import { useState } from "react";
+import { Plus, Send, Trash2, User, Bot } from "lucide-react";
+import { format } from "date-fns";
+import { useChat } from "@ai-sdk/react";
+
+type Role = "doctor" | "nurse" | "receptionist";
+
+interface Conversation {
+  id: string;
+  title: string;
+  role: Role;
+  patientId: string;
+  createdAt: Date;
+  lastMessage?: string;
+}
+
+export default function HomePage() {
+  const [selectedRole, setSelectedRole] = useState<Role>("doctor");
+  const [patientId, setPatientId] = useState<string>("patient-1");
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [input, setInput] = useState<string>("");
+
+  const activeConversation = conversations.find(
+    (conv) => conv.id === activeConversationId
+  );
+
+  const filteredConversations = conversations.filter(
+    (conv) => conv.role === selectedRole && conv.patientId === patientId
+  );
+
+  // AI SDK v5 — no input management here, just messages + sendMessage + status
+  const { messages, sendMessage, status } = useChat({
+    api: "/api/chat",
+    // conversation id is handled inside the SDK; we can also pass it via body when sending
+    body: { role: selectedRole, patientId, }, conversationId: activeConversationId || undefined,        
+  });
+
+  // Create new conversation
+  const handleNewConversation = () => {
+    if (!patientId) return alert("Please select a patient ID.");
+
+    const newConversation: Conversation = {
+      id: `conv-${Date.now()}`,
+      title: `${selectedRole} ↔ Patient ${patientId}`,
+      role: selectedRole,
+      patientId,
+      createdAt: new Date(),
+    };
+
+    setConversations([newConversation, ...conversations]);
+    setActiveConversationId(newConversation.id);
+    setInput("");
+  };
+
+  // Select conversation
+  const handleSelectConversation = (conversationId: string) => {
+    setActiveConversationId(conversationId);
+    setInput("");
+    // NOTE: in STEP 2 we are NOT loading any previous messages yet (no memory).
+  };
+
+  // Delete conversation
+  const handleDeleteConversation = (conversationId: string) => {
+    if (!window.confirm("Are you sure you want to delete this conversation?")) return;
+
+    setConversations(conversations.filter((c) => c.id !== conversationId));
+    setActiveConversationId(null);
+    setInput("");
+  };
+
+  const isLoading = status === "streaming" || status === "submitted";
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="flex h-screen bg-slate-950 text-slate-100">
+      {/* Sidebar */}
+      <aside className="w-80 border-r border-slate-800 bg-slate-900 flex flex-col">
+        <div className="p-6 border-b border-slate-800">
+          <h1 className="text-2xl font-bold text-emerald-400 mb-6">
+            Healthcare Agent
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Role</label>
+              <select
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value as Role)}
+                className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              >
+                <option value="doctor">Doctor</option>
+                <option value="nurse">Nurse</option>
+                <option value="receptionist">Receptionist</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Patient ID</label>
+              <input
+                value={patientId}
+                onChange={(e) => setPatientId(e.target.value)}
+                placeholder="e.g., patient-1"
+                className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              />
+            </div>
+
+            <button
+              onClick={handleNewConversation}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 font-medium text-white transition-colors"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+              <Plus className="w-5 h-5" />
+              New Conversation
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          <p className="text-xs text-slate-400 mb-3 px-2">
+            Conversations ({filteredConversations.length})
           </p>
+
+          {filteredConversations.length === 0 ? (
+            <p className="text-center text-sm text-slate-500 italic py-8">
+              No conversations yet. Create one!
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {filteredConversations.map((conv) => (
+                <div key={conv.id} className="relative group rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => handleSelectConversation(conv.id)}
+                    className={`w-full text-left p-4 rounded-lg transition-all ${
+                      conv.id === activeConversationId
+                        ? "bg-emerald-900/60 border border-emerald-600 shadow-lg"
+                        : "bg-slate-800 hover:bg-slate-750 border border-transparent"
+                    }`}
+                  >
+                    <div className="font-medium text-sm truncate">{conv.title}</div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      {format(conv.createdAt, "MMM d, h:mm a")}
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteConversation(conv.id);
+                    }}
+                    className="absolute right-2 top-2 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:bg-red-500/20 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </aside>
+
+      {/* Main Chat Area */}
+      <main className="flex-1 flex flex-col">
+        <header className="border-b border-slate-800 px-8 py-5 bg-slate-950/90 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold capitalize">{selectedRole} Mode</h2>
+            {patientId && (
+              <p className="text-sm text-slate-400 mt-1">
+                Patient:{" "}
+                <span className="font-mono text-emerald-400">{patientId}</span>
+              </p>
+            )}
+          </div>
+          <div className="text-sm text-slate-400">
+            {activeConversation ? "Ready" : "No conversation selected"}
+          </div>
+        </header>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-gradient-to-b from-slate-950 to-slate-900">
+          {messages.length === 0 && activeConversation && (
+            <div className="text-center text-slate-500 mt-32">
+              <p className="text-lg">Start chatting with the agent...</p>
+              <p className="text-sm mt-2">AI responses are streamed live</p>
+            </div>
+          )}
+
+          {messages.length === 0 && !activeConversation && (
+            <div className="text-center text-slate-500 mt-32">
+              <p className="text-lg">Create or select a conversation to begin</p>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`flex gap-3 max-w-2xl ${
+                  msg.role === "user" ? "flex-row-reverse" : ""
+                }`}
+              >
+                <div
+                  className={`w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center ${
+                    msg.role === "user" ? "bg-emerald-600" : "bg-slate-700"
+                  }`}
+                >
+                  {msg.role === "user" ? (
+                    <User className="w-5 h-5" />
+                  ) : (
+                    <Bot className="w-5 h-5" />
+                  )}
+                </div>
+
+                <div
+                  className={`rounded-2xl px-5 py-3 shadow-lg ${
+                    msg.role === "user"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-800 text-slate-100 border border-slate-700"
+                  }`}
+                >
+                  {msg.parts.map((part, idx) =>
+                    part.type === "text" ? (
+                      <p key={idx} className="whitespace-pre-wrap leading-relaxed">
+                        {part.text}
+                      </p>
+                    ) : null
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
+
+        {/* Input */}
+        {activeConversation && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const text = input.trim();
+              if (!text) return;
+
+              // Send message to AI with role + patient context
+              sendMessage(
+                { text },
+                {
+                  body: {
+                    role: selectedRole,
+                    patientId,
+                    conversationId: activeConversationId,
+                  },
+                }
+              );
+
+              setInput("");
+            }}
+            className="border-t border-slate-800 p-6 bg-slate-950/90"
+          >
+            <div className="max-w-4xl mx-auto flex gap-4">
+              <input
+                autoFocus
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type your message..."
+                className="flex-1 rounded-xl bg-slate-800 border border-slate-700 px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <button
+                type="submit"
+                disabled={input.trim() === "" || isLoading}
+                className="px-8 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 font-medium text-white transition-all shadow-md flex items-center gap-2"
+              >
+                <Send className="w-5 h-5" />
+                Send
+              </button>
+            </div>
+          </form>
+        )}
+
+        {isLoading && (
+          <p className="text-sm text-slate-400 px-8 pb-2">AI is typing...</p>
+        )}
       </main>
     </div>
   );
