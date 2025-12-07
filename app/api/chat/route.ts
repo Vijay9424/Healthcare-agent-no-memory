@@ -1,11 +1,22 @@
 // app/api/chat/route.ts
 import { openai } from "@ai-sdk/openai";
 import { streamText, convertToModelMessages } from "ai";
+import { writeLog, calculateCost } from "@/lib/logger";
 
 export const maxDuration = 30;
 
+function getLastUserText(messages: UIMessage[]) {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUser) return undefined;
+  return lastUser.parts
+    .filter((p) => p.type === "text")
+    .map((p: any) => p.text)
+    .join(" ")
+    .trim();
+}
+
 export async function POST(req: Request) {
-  const { messages, role, patientId } = await req.json();
+  const { messages, role, patientId, conversationId } = await req.json();
 
   const systemInstruction =
     role === "doctor"
@@ -25,7 +36,35 @@ Never provide medical advice. Always redirect medical questions to a doctor or n
     system: `${systemInstruction}\nCurrent Patient ID (context only): ${patientId}`,
     messages: convertToModelMessages(messages),
     temperature: 0.4,   // accuracy over creativity
+      async onFinish({ usage, text, finishReason }) {
+      const inputTokens =
+        usage?.inputTokens ?? usage?.promptTokens;
+      const outputTokens =
+        usage?.outputTokens ?? usage?.completionTokens;
+
+      const cost = calculateCost("GPT4O", inputTokens, outputTokens);
+
+      await writeLog({
+        timestamp: new Date().toISOString(),
+        model: "gpt-4o",
+        finishReason,
+        role,
+        patientId,
+        conversationId,
+        lastUserText: getLastUserText(messages),
+        assistantText: text,
+        usage: {
+          inputTokens,
+          outputTokens,
+          totalTokens: usage?.totalTokens,
+          reasoningTokens: usage?.reasoningTokens,
+          cachedInputTokens: usage?.cachedInputTokens,
+        },
+        costUSD: cost,
+      });
+    },
   });
 
   return result.toUIMessageStreamResponse();
 }
+

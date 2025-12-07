@@ -32,12 +32,12 @@ export default function HomePage() {
     (conv) => conv.role === selectedRole && conv.patientId === patientId
   );
 
-  // AI SDK v5 — no input management here, just messages + sendMessage + status
+  // AI SDK v5 — we let it handle messages + streaming, we manage input ourselves.
   const { messages, sendMessage, status } = useChat({
     api: "/api/chat",
-    // conversation id is handled inside the SDK; we can also pass it via body when sending
-    body: { role: selectedRole, patientId, }, conversationId: activeConversationId || undefined,        
   });
+
+  const isLoading = status === "streaming" || status === "submitted";
 
   // Create new conversation
   const handleNewConversation = () => {
@@ -71,8 +71,6 @@ export default function HomePage() {
     setActiveConversationId(null);
     setInput("");
   };
-
-  const isLoading = status === "streaming" || status === "submitted";
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100">
@@ -179,7 +177,7 @@ export default function HomePage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-gradient-to-b from-slate-950 to-slate-900">
-          {messages.length === 0 && activeConversation && (
+          {messages.length === 0 && activeConversation && !isLoading && (
             <div className="text-center text-slate-500 mt-32">
               <p className="text-lg">Start chatting with the agent...</p>
               <p className="text-sm mt-2">AI responses are streamed live</p>
@@ -232,6 +230,24 @@ export default function HomePage() {
               </div>
             </div>
           ))}
+
+          {/* Typing indicator as an assistant bubble */}
+          {activeConversation && isLoading && (
+            <div className="flex justify-start">
+              <div className="flex gap-3 max-w-2xl">
+                <div className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center bg-slate-700">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div className="rounded-2xl px-5 py-3 shadow-lg bg-slate-800 text-slate-100 border border-slate-700">
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
+                    <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
+                    <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Input */}
@@ -276,10 +292,6 @@ export default function HomePage() {
               </button>
             </div>
           </form>
-        )}
-
-        {isLoading && (
-          <p className="text-sm text-slate-400 px-8 pb-2">AI is typing...</p>
         )}
       </main>
     </div>
