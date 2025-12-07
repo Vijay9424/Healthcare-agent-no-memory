@@ -3,9 +3,10 @@ import Database from "better-sqlite3";
 
 const db = new Database("chats.db");
 
-// Optional but good for concurrency
+// Enable WAL mode for better concurrency
 db.pragma("journal_mode = WAL");
 
+// Create schema
 db.exec(`
   CREATE TABLE IF NOT EXISTS chats (
     id TEXT PRIMARY KEY,
@@ -18,5 +19,8 @@ db.exec(`
     messages TEXT NOT NULL
   );
 `);
+
+// Enable foreign keys and other safety pragmas
+db.pragma("foreign_keys = ON");
 
 export default db;

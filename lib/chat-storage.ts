@@ -20,10 +20,10 @@ export async function createChat(): Promise<string> {
 
 export async function loadChat(chatId: string): Promise<UIMessage[]> {
   const row = db
-    .prepare<[{ id: string }], { messages: string }>(
+    .prepare<{ messages: string }>(
       `SELECT messages FROM chats WHERE id = ?`
     )
-    .get(chatId);
+    .get(chatId) as { messages: string } | undefined;
 
   if (!row?.messages) return [];
 
@@ -54,7 +54,7 @@ export async function saveChat({
   const lastText =
     lastMessage?.parts
       ?.filter((p) => p.type === "text")
-      .map((p: any) => p.text)
+      .map((p) => (p as { type: "text"; text: string }).text)
       .join(" ")
       .slice(0, 200) ?? null;
 
@@ -62,10 +62,10 @@ export async function saveChat({
     role && patientId ? `${role} ↔ Patient ${patientId}` : null;
 
   const existing = db
-    .prepare<[{ id: string }], { id: string }>(
+    .prepare<{ id: string }>(
       `SELECT id FROM chats WHERE id = ?`
     )
-    .get(chatId);
+    .get(chatId) as { id: string } | undefined;
 
   if (!existing) {
     const insert = db.prepare(

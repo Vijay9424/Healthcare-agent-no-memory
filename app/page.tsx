@@ -30,6 +30,7 @@ export default function HomePage() {
     sendMessage,
     status,
     setMessages,
+    error,
   } = useChat({
     id: activeConversationId ?? undefined,
     transport: new DefaultChatTransport({
@@ -46,6 +47,9 @@ export default function HomePage() {
         };
       },
     }),
+    onError: (error) => {
+      console.error("Chat error:", error);
+    },
   });
 
   const isLoading = status === "streaming" || status === "submitted";
@@ -66,11 +70,18 @@ export default function HomePage() {
         if (!res.ok) return;
 
         const data = await res.json();
-        const mapped: Conversation[] = data.map((c: any) => ({
+        const mapped: Conversation[] = data.map((c: {
+          id: string;
+          title: string;
+          role: Role;
+          patientId: string;
+          createdAt: number;
+          lastMessage?: string;
+        }) => ({
           id: c.id,
-          title: c.title as string,
-          role: c.role as Role,
-          patientId: c.patientId as string,
+          title: c.title,
+          role: c.role,
+          patientId: c.patientId,
           createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
           lastMessage: c.lastMessage ?? undefined,
         }));
@@ -244,6 +255,12 @@ export default function HomePage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-gradient-to-b from-slate-950 to-slate-900">
+          {error && (
+            <div className="rounded-lg bg-red-900/20 border border-red-700 p-4 text-red-300">
+              <p className="text-sm font-medium">Error: {error.message}</p>
+            </div>
+          )}
+
           {messages.length === 0 && activeConversation && !isLoading && (
             <div className="text-center text-slate-500 mt-32">
               <p className="text-lg">Start chatting with the agent...</p>
