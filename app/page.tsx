@@ -1,10 +1,11 @@
 // app/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Send, Trash2, User, Bot } from "lucide-react";
 import { format } from "date-fns";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 
 type Role = "doctor" | "nurse" | "receptionist";
 
@@ -24,6 +25,31 @@ export default function HomePage() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [input, setInput] = useState<string>("");
 
+  const {
+    messages,
+    sendMessage,
+    status,
+    setMessages,
+  } = useChat({
+    id: activeConversationId ?? undefined,
+    transport: new DefaultChatTransport({
+      api: "/api/chat",
+      // ✅ Frontend ALWAYS sends full history + chatId (+ role + patientId)
+      prepareSendMessagesRequest: ({ messages, id }) => {
+        return {
+          body: {
+            messages,
+            chatId: id,
+            role: selectedRole,
+            patientId,
+          },
+        };
+      },
+    }),
+  });
+
+  const isLoading = status === "streaming" || status === "submitted";
+
   const activeConversation = conversations.find(
     (conv) => conv.id === activeConversationId
   );
@@ -32,44 +58,85 @@ export default function HomePage() {
     (conv) => conv.role === selectedRole && conv.patientId === patientId
   );
 
-  // AI SDK v5 — we let it handle messages + streaming, we manage input ourselves.
-  const { messages, sendMessage, status } = useChat({
-    api: "/api/chat",
-  });
+  // 🔄 Load persistent conversation list on first render
+  useEffect(() => {
+    const loadConversations = async () => {
+      try {
+        const res = await fetch("/api/conversations");
+        if (!res.ok) return;
 
-  const isLoading = status === "streaming" || status === "submitted";
+        const data = await res.json();
+        const mapped: Conversation[] = data.map((c: any) => ({
+          id: c.id,
+          title: c.title as string,
+          role: c.role as Role,
+          patientId: c.patientId as string,
+          createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
+          lastMessage: c.lastMessage ?? undefined,
+        }));
+
+        setConversations(mapped);
+      } catch (error) {
+        console.error("Failed to load conversations", error);
+      }
+    };
+
+    loadConversations();
+  }, []);
 
   // Create new conversation
   const handleNewConversation = () => {
-    if (!patientId) return alert("Please select a patient ID.");
+    if (!patientId) {
+      alert("Please select a patient ID.");
+      return;
+    }
+
+    const newId = `conv-${Date.now()}`;
 
     const newConversation: Conversation = {
-      id: `conv-${Date.now()}`,
+      id: newId,
       title: `${selectedRole} ↔ Patient ${patientId}`,
       role: selectedRole,
       patientId,
       createdAt: new Date(),
     };
 
-    setConversations([newConversation, ...conversations]);
-    setActiveConversationId(newConversation.id);
+    setConversations((prev) => [newConversation, ...prev]);
+    setActiveConversationId(newId);
+    setMessages([]);
     setInput("");
   };
 
-  // Select conversation
-  const handleSelectConversation = (conversationId: string) => {
+  // Select conversation (load from backend)
+  const handleSelectConversation = async (conversationId: string) => {
     setActiveConversationId(conversationId);
     setInput("");
-    // NOTE: in STEP 2 we are NOT loading any previous messages yet (no memory).
+    setMessages([]);
+
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}`);
+      if (!res.ok) {
+        console.error("Failed to load conversation", await res.text());
+        return;
+      }
+      const history = await res.json();
+      setMessages(history);
+    } catch (error) {
+      console.error("Error loading conversation", error);
+    }
   };
 
-  // Delete conversation
+  // Delete conversation (only from UI for now)
   const handleDeleteConversation = (conversationId: string) => {
     if (!window.confirm("Are you sure you want to delete this conversation?")) return;
 
-    setConversations(conversations.filter((c) => c.id !== conversationId));
-    setActiveConversationId(null);
-    setInput("");
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+
+    if (activeConversationId === conversationId) {
+      setActiveConversationId(null);
+      setMessages([]);
+      setInput("");
+    }
   };
 
   return (
@@ -258,17 +325,8 @@ export default function HomePage() {
               const text = input.trim();
               if (!text) return;
 
-              // Send message to AI with role + patient context
-              sendMessage(
-                { text },
-                {
-                  body: {
-                    role: selectedRole,
-                    patientId,
-                    conversationId: activeConversationId,
-                  },
-                }
-              );
+              // Send message to AI (full history + chatId handled by transport)
+              sendMessage({ text });
 
               setInput("");
             }}

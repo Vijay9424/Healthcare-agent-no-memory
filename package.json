@@ -12,6 +12,7 @@
     "@ai-sdk/openai": "^2.0.79",
     "@ai-sdk/react": "^2.0.109",
     "ai": "^5.0.108",
+    "better-sqlite3": "^12.5.0",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.556.0",
     "next": "16.0.7",

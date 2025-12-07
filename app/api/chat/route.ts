@@ -1,9 +1,16 @@
 // app/api/chat/route.ts
 import { openai } from "@ai-sdk/openai";
-import { streamText, convertToModelMessages } from "ai";
+import {
+  streamText,
+  convertToModelMessages,
+  type UIMessage,
+} from "ai";
 import { writeLog, calculateCost } from "@/lib/logger";
+import { saveChat } from "@/lib/chat-storage";
 
 export const maxDuration = 30;
+
+type Role = "doctor" | "nurse" | "receptionist";
 
 function getLastUserText(messages: UIMessage[]) {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
@@ -16,7 +23,17 @@ function getLastUserText(messages: UIMessage[]) {
 }
 
 export async function POST(req: Request) {
-  const { messages, role, patientId, conversationId } = await req.json();
+  const {
+    messages,
+    chatId,
+    role,
+    patientId,
+  }: {
+    messages: UIMessage[];
+    chatId: string;
+    role: Role;
+    patientId: string;
+  } = await req.json();
 
   const systemInstruction =
     role === "doctor"
@@ -29,14 +46,14 @@ Assist in patient monitoring, medication schedules, wound care instructions, dis
 Provide actionable and clear nursing-oriented guidance.`
       : `You are an AI assistant that helps hospital receptionists.
 Assist with scheduling, billing coordination, insurance queries, patient registration, and hospital process guidance.
-Never provide medical advice. Always redirect medical questions to a doctor or nurse.`
+Never provide medical advice. Always redirect medical questions to a doctor or nurse.`;
 
   const result = await streamText({
     model: openai("gpt-4o"),
     system: `${systemInstruction}\nCurrent Patient ID (context only): ${patientId}`,
     messages: convertToModelMessages(messages),
-    temperature: 0.4,   // accuracy over creativity
-      async onFinish({ usage, text, finishReason }) {
+    temperature: 0.4, // accuracy over creativity
+    async onFinish({ usage, text, finishReason }) {
       const inputTokens =
         usage?.inputTokens ?? usage?.promptTokens;
       const outputTokens =
@@ -50,7 +67,7 @@ Never provide medical advice. Always redirect medical questions to a doctor or n
         finishReason,
         role,
         patientId,
-        conversationId,
+        conversationId: chatId,
         lastUserText: getLastUserText(messages),
         assistantText: text,
         usage: {
@@ -65,6 +82,16 @@ Never provide medical advice. Always redirect medical questions to a doctor or n
     },
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    originalMessages: messages,
+    async onFinish({ messages: updatedMessages }) {
+      // ❗ Official pattern: saveChat({ chatId, messages })
+      await saveChat({
+        chatId,
+        messages: updatedMessages,
+        role,
+        patientId,
+      });
+    },
+  });
 }
-
